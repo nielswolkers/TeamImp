@@ -98,9 +98,9 @@ function App() {
   async function beginLogin(extraScopes: string[] = []) {
     setError("");
     setLoginStatus("Microsoft-aanmelding openen…");
+    let removeSuccess: (() => void) | undefined;
+    let removeError: (() => void) | undefined;
     try {
-      let removeSuccess: (() => void) | undefined;
-      let removeError: (() => void) | undefined;
       removeSuccess = await listen<{ access_token: string; expires_in: number }>("microsoft-auth-success", async (event) => {
         removeSuccess?.();
         removeError?.();
@@ -124,6 +124,8 @@ function App() {
       });
       setLoginStatus("Log in in het Microsoft-venster. Je keert daarna automatisch terug naar TeamImp.");
     } catch (err) {
+      removeSuccess?.();
+      removeError?.();
       setLoginStatus("");
       setError(err instanceof Error ? err.message : "Aanmelden mislukt.");
     }
@@ -186,7 +188,7 @@ function App() {
             <div className="eyebrow">JOUW SCHOOLACCOUNT</div>
             <h2>Verbind met Microsoft Teams</h2>
             <p className="muted copy-width">Meld je aan met het Microsoft 365-account van school om je opdrachten, chats en vermeldingen op te halen.</p>
-            <button className="primary-button" onClick={() => void beginLogin()}><span>Aanmelden met Microsoft</span><ChevronRight size={17} /></button>
+            <button className="primary-button" onClick={() => void beginLogin()} disabled={Boolean(loginStatus)}><span>Aanmelden met Microsoft</span><ChevronRight size={17} /></button>
             <p className="muted small copy-width">Je logt rechtstreeks in bij Microsoft. Je wachtwoord wordt niet door TeamImp opgeslagen.</p>
             {loginStatus && <div className="login-status"><LoaderCircle size={16} className="spin" />{loginStatus}</div>}
 
