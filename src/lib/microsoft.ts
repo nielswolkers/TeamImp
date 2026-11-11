@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 
-const AUTHORITY = "https://login.microsoftonline.com/organizations/oauth2/v2.0";
 const GRAPH = "https://graph.microsoft.com/v1.0";
 const MICROSOFT_CLIENT_ID = import.meta.env.VITE_MICROSOFT_CLIENT_ID || "";
 const CHANNEL_ACCESS_KEY = "teamimp.microsoft.channelAccess";
@@ -67,7 +66,7 @@ async function getAccessToken() {
   if (accessToken && Date.now() < tokenExpiresAt - 60_000) return accessToken;
   try {
     return await refreshAccessToken();
-  } catch (error) {
+  } catch {
     if (hasChannelAccess()) {
       setChannelAccess(false);
       return refreshAccessToken();
