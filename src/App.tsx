@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
-  AtSign, Bell, BookOpen, Check, CheckCircle2, ChevronRight, CircleAlert, Clock3,
-  Inbox, LoaderCircle, LogOut, MessageCircle, RefreshCw, Search, Settings, ShieldCheck,
-  Sparkles, ExternalLink, Copy, X
+  AtSign, Bell, BookOpen, CheckCircle2, ChevronRight, CircleAlert, Clock3,
+  Inbox, LoaderCircle, LogOut, MessageCircle, RefreshCw, Search, ShieldCheck, Sparkles
 } from "lucide-react";
 import {
-  Assignment, ChatMessage, DeviceChallenge, TeamChat, assignmentBucket, finishDeviceCodeLogin,
-  formatDate, getAssignments, getChats, getClientId, getMe, getMentions, hasChannelAccess,
-  openMicrosoftSignInUrl, plainText, requestDeviceCode, saveClientId, signOut, CHANNEL_SCOPES,
-  getChatMessages
+  Assignment, ChatMessage, TeamChat, assignmentBucket, formatDate, getAssignments, getChats,
+  getClientId, getMe, getMentions, hasChannelAccess, plainText, signOut, CHANNEL_SCOPES,
+  getChatMessages, setAccessToken, setChannelAccess
 } from "./lib/microsoft";
 
 type MainView = "notifications" | "tasks";
@@ -19,8 +19,6 @@ function App() {
   const [mainView, setMainView] = useState<MainView>("tasks");
   const [noticeView, setNoticeView] = useState<NoticeView>("chats");
   const [taskView, setTaskView] = useState<TaskView>("open");
-  const [clientId, setClientId] = useState(getClientId());
-  const [showSettings, setShowSettings] = useState(false);
   const [connected, setConnected] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [profileId, setProfileId] = useState("");
@@ -33,9 +31,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [loadingChat, setLoadingChat] = useState(false);
   const [error, setError] = useState("");
-  const [challenge, setChallenge] = useState<DeviceChallenge | null>(null);
   const [loginStatus, setLoginStatus] = useState("");
-  const [copied, setCopied] = useState(false);
   const [channelPermission, setChannelPermission] = useState(hasChannelAccess());
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
 
@@ -101,34 +97,36 @@ function App() {
 
   async function beginLogin(extraScopes: string[] = []) {
     setError("");
-    setLoginStatus("Aanmeldcode ophalen…");
+    setLoginStatus("Microsoft-aanmelding openen…");
     try {
-      const deviceChallenge = await requestDeviceCode(extraScopes);
-      setChallenge(deviceChallenge);
-      setLoginStatus("Wacht op bevestiging in Microsoft…");
-      await finishDeviceCodeLogin(deviceChallenge, extraScopes);
-      setChallenge(null);
-      setLoginStatus("");
-      setChannelPermission(extraScopes.length > 0);
-      await loadWorkspace();
+      let removeSuccess: (() => void) | undefined;
+      let removeError: (() => void) | undefined;
+      removeSuccess = await listen<{ access_token: string; expires_in: number }>("microsoft-auth-success", async (event) => {
+        removeSuccess?.();
+        removeError?.();
+        setAccessToken(event.payload.access_token, event.payload.expires_in);
+        if (extraScopes.length > 0) {
+          setChannelAccess(true);
+          setChannelPermission(true);
+        }
+        setLoginStatus("");
+        await loadWorkspace();
+      });
+      removeError = await listen<string>("microsoft-auth-error", (event) => {
+        removeSuccess?.();
+        removeError?.();
+        setLoginStatus("");
+        setError(event.payload);
+      });
+      await invoke("start_microsoft_login", {
+        clientId: getClientId(),
+        extraScopes
+      });
+      setLoginStatus("Log in in het Microsoft-venster. Je keert daarna automatisch terug naar TeamImp.");
     } catch (err) {
       setLoginStatus("");
-      setChallenge(null);
       setError(err instanceof Error ? err.message : "Aanmelden mislukt.");
     }
-  }
-
-  function saveSettings() {
-    saveClientId(clientId);
-    setShowSettings(false);
-    setError("Client ID opgeslagen. Meld je aan met je Microsoft-schoolaccount.");
-  }
-
-  async function copyCode() {
-    if (!challenge) return;
-    await navigator.clipboard.writeText(challenge.user_code);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
   }
 
   async function doSignOut() {
@@ -170,7 +168,6 @@ function App() {
         <button className={"rail-button " + (mainView === "tasks" ? "active" : "")} onClick={() => setMainView("tasks")} title="Taken"><BookOpen size={19} /></button>
         <button className={"rail-button " + (mainView === "notifications" ? "active" : "")} onClick={() => setMainView("notifications")} title="Meldingen"><Bell size={19} /></button>
         <div className="rail-spacer" />
-        <button className="rail-button" onClick={() => setShowSettings(true)} title="Instellingen"><Settings size={19} /></button>
         {connected && <button className="rail-button signout" onClick={() => void doSignOut()} title="Afmelden"><LogOut size={18} /></button>}
         <div className="rail-avatar">{profileName ? profileName.slice(0, 1).toUpperCase() : "T"}</div>
       </aside>
@@ -180,7 +177,6 @@ function App() {
           <div className="top-actions">
             <div className={"connection-pill " + (connected ? "connected" : "")}><span className="status-dot" />{connected ? "Verbonden" : "Niet verbonden"}</div>
             <button className="icon-button" title="Synchroniseren" onClick={() => void loadWorkspace()} disabled={!connected || busy}><RefreshCw size={17} className={busy ? "spin" : ""} /></button>
-            <button className="icon-button" title="Instellingen" onClick={() => setShowSettings(true)}><Settings size={17} /></button>
           </div>
         </header>
 
@@ -190,16 +186,10 @@ function App() {
             <div className="eyebrow">JOUW SCHOOLACCOUNT</div>
             <h2>Verbind met Microsoft Teams</h2>
             <p className="muted copy-width">Meld je aan met het Microsoft 365-account van school om je opdrachten, chats en vermeldingen op te halen.</p>
-            <button className="primary-button" onClick={() => void beginLogin()} disabled={!clientId.trim()}><span>Verbind Microsoft-account</span><ChevronRight size={17} /></button>
-            {!clientId.trim() && <button className="text-button" onClick={() => setShowSettings(true)}>Eerst je Microsoft Client ID instellen</button>}
+            <button className="primary-button" onClick={() => void beginLogin()}><span>Aanmelden met Microsoft</span><ChevronRight size={17} /></button>
+            <p className="muted small copy-width">Je logt rechtstreeks in bij Microsoft. Je wachtwoord wordt niet door TeamImp opgeslagen.</p>
             {loginStatus && <div className="login-status"><LoaderCircle size={16} className="spin" />{loginStatus}</div>}
-            {challenge && <div className="device-card">
-              <div className="device-label">MICROSOFT AANMELDCODE</div>
-              <button className="device-code" onClick={() => void copyCode()}>{challenge.user_code}<Copy size={15} /></button>
-              <span className="muted small">{copied ? "Code gekopieerd" : "Kopieer de code en voer hem in op Microsoft."}</span>
-              <a className="device-link" href={openMicrosoftSignInUrl()} target="_blank" rel="noreferrer">microsoft.com/devicelogin <ExternalLink size={13} /></a>
-              <p className="small muted">TeamImp wacht automatisch tot je de aanmelding hebt bevestigd.</p>
-            </div>}
+
           </section>
         ) : (
           <>
@@ -288,16 +278,6 @@ function App() {
         )}
       </main>
 
-      {showSettings && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowSettings(false); }}>
-        <section className="settings-modal">
-          <div className="modal-head"><div><div className="eyebrow">CONFIGURATIE</div><h2>Instellingen</h2></div><button className="icon-button" onClick={() => setShowSettings(false)}><X size={18} /></button></div>
-          <label className="form-label" htmlFor="client-id">Microsoft Entra Client ID</label>
-          <input id="client-id" className="text-input" value={clientId} onChange={(event) => setClientId(event.target.value)} placeholder="00000000-0000-0000-0000-000000000000" />
-          <p className="muted small">TeamImp gebruikt een publieke desktopapp-registratie met device-code login. Schakel in Microsoft Entra public client flows in en voeg de gedelegeerde Graph-machtigingen uit de README toe.</p>
-          <div className="settings-actions"><button className="outline-button" onClick={() => setShowSettings(false)}>Annuleren</button><button className="primary-button compact" onClick={saveSettings}><Check size={16} />Opslaan</button></div>
-          {connected && <button className="danger-button" onClick={() => { void doSignOut(); setShowSettings(false); }}>Afmelden en token wissen</button>}
-        </section>
-      </div>}
       {error && !connected && <div className="toast-error"><CircleAlert size={16} />{error}<button onClick={() => setError("")}><X size={14} /></button></div>}
     </div>
   );
