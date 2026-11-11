@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
   AtSign, Bell, BookOpen, CheckCircle2, ChevronRight, CircleAlert, Clock3,
-  Inbox, LoaderCircle, LogOut, MessageCircle, RefreshCw, Search, ShieldCheck, Sparkles
+  Inbox, LoaderCircle, LogOut, MessageCircle, RefreshCw, Search, ShieldCheck, Sparkles, X
 } from "lucide-react";
 import {
   Assignment, ChatMessage, TeamChat, assignmentBucket, formatDate, getAssignments, getChats,
