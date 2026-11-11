@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 const AUTHORITY = "https://login.microsoftonline.com/organizations/oauth2/v2.0";
 const GRAPH = "https://graph.microsoft.com/v1.0";
-const CLIENT_ID_KEY = "teamimp.microsoft.clientId";
+const MICROSOFT_CLIENT_ID = import.meta.env.VITE_MICROSOFT_CLIENT_ID || "";
 const CHANNEL_ACCESS_KEY = "teamimp.microsoft.channelAccess";
 
 export const BASE_SCOPES = [
@@ -13,10 +13,6 @@ export const CHANNEL_SCOPES = [
   "Team.ReadBasic.All", "Channel.ReadBasic.All", "ChannelMessage.Read.All"
 ];
 
-export type DeviceChallenge = {
-  device_code: string; user_code: string; verification_uri: string;
-  message: string; interval: number; expires_in: number;
-};
 export type Assignment = {
   id: string; displayName?: string; classId?: string; className?: string;
   dueDateTime?: string; assignedDateTime?: string;
@@ -41,10 +37,7 @@ let accessToken: string | null = null;
 let tokenExpiresAt = 0;
 
 export function getClientId() {
-  return localStorage.getItem(CLIENT_ID_KEY) || import.meta.env.VITE_MICROSOFT_CLIENT_ID || "";
-}
-export function saveClientId(value: string) {
-  localStorage.setItem(CLIENT_ID_KEY, value.trim());
+  return MICROSOFT_CLIENT_ID.trim();
 }
 export function hasChannelAccess() {
   return localStorage.getItem(CHANNEL_ACCESS_KEY) === "true";
@@ -62,48 +55,9 @@ async function tokenRequest(body: URLSearchParams) {
   return payload as { access_token: string; refresh_token?: string; expires_in: number; scope?: string };
 }
 
-export async function requestDeviceCode(extraScopes: string[] = []): Promise<DeviceChallenge> {
-  const clientId = getClientId();
-  if (!clientId) throw new Error("Vul eerst je Microsoft Entra Client ID in bij Instellingen.");
-  const response = await fetch(AUTHORITY + "/devicecode", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ client_id: clientId, scope: [...BASE_SCOPES, ...extraScopes].join(" ") })
-  });
-  const payload = await response.json();
-  if (!response.ok) throw new Error(payload.error_description || payload.error || "Device-login kan niet worden gestart.");
-  return payload as DeviceChallenge;
-}
-
-export async function finishDeviceCodeLogin(challenge: DeviceChallenge, extraScopes: string[] = []) {
-  const deadline = Date.now() + challenge.expires_in * 1000;
-  let interval = Math.max(challenge.interval || 5, 5);
-  while (Date.now() < deadline) {
-    await new Promise((resolve) => window.setTimeout(resolve, interval * 1000));
-    const response = await fetch(AUTHORITY + "/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-        client_id: getClientId(),
-        device_code: challenge.device_code
-      })
-    });
-    const payload = await response.json();
-    if (response.ok && payload.access_token) {
-      accessToken = payload.access_token;
-      tokenExpiresAt = Date.now() + Number(payload.expires_in || 3600) * 1000;
-      if (payload.refresh_token) await invoke("set_microsoft_refresh_token", { token: payload.refresh_token });
-      if (extraScopes.length) setChannelAccess(true);
-      return;
-    }
-    if (payload.error === "authorization_pending") continue;
-    if (payload.error === "slow_down") { interval += 5; continue; }
-    if (payload.error === "authorization_declined") throw new Error("De Microsoft-aanmelding is geweigerd.");
-    if (payload.error === "expired_token") throw new Error("De aanmeldcode is verlopen. Start de login opnieuw.");
-    throw new Error(payload.error_description || payload.error || "Microsoft-aanmelding mislukt.");
-  }
-  throw new Error("De aanmeldcode is verlopen. Start de login opnieuw.");
+export function setAccessToken(token: string, expiresIn: number) {
+  accessToken = token;
+  tokenExpiresAt = Date.now() + Math.max(expiresIn, 60) * 1000;
 }
 
 async function refreshAccessToken() {
@@ -259,4 +213,3 @@ export function formatDate(value?: string) {
     weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit"
   }).format(date);
 }
-export function openMicrosoftSignInUrl() { return "https://microsoft.com/devicelogin"; }
