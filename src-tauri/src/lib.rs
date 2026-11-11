@@ -207,7 +207,7 @@ fn open_system_browser(url: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn refresh_microsoft_access_token(
+async fn refresh_microsoft_access_token(
     client_id: String,
     extra_scopes: Vec<String>,
 ) -> Result<Value, String> {
@@ -215,9 +215,11 @@ fn refresh_microsoft_access_token(
     if client_id.is_empty() {
         return Err("Microsoft Application ID ontbreekt in deze TeamImp-build.".into());
     }
-    let entry = Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
-    let refresh_token = entry.get_password()
-        .map_err(|e| format!("Microsoft-sessie ophalen uit macOS Keychain mislukt: {e}"))?;
+    let refresh_token = {
+        let entry = Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
+        entry.get_password()
+            .map_err(|e| format!("Microsoft-sessie ophalen uit macOS Keychain mislukt: {e}"))?
+    };
     let mut scopes: Vec<String> = BASE_SCOPES.iter().map(|s| (*s).to_string()).collect();
     for scope in extra_scopes {
         if !scopes.contains(&scope) {
@@ -225,7 +227,7 @@ fn refresh_microsoft_access_token(
         }
     }
     let scope = scopes.join(" ");
-    let response = reqwest::blocking::Client::new()
+    let response = reqwest::Client::new()
         .post("https://login.microsoftonline.com/organizations/oauth2/v2.0/token")
         .form(&[
             ("client_id", client_id.as_str()),
@@ -234,9 +236,10 @@ fn refresh_microsoft_access_token(
             ("scope", scope.as_str()),
         ])
         .send()
+        .await
         .map_err(|e| format!("Microsoft-sessie vernieuwen mislukt: {e}"))?;
     let status = response.status();
-    let payload: Value = response.json()
+    let payload: Value = response.json().await
         .map_err(|e| format!("Microsoft-tokenantwoord kon niet worden gelezen: {e}"))?;
     if !status.is_success() {
         let description = payload["error_description"].as_str()
@@ -245,6 +248,7 @@ fn refresh_microsoft_access_token(
         return Err(format!("Microsoft-token vernieuwen ({status}): {description}"));
     }
     if let Some(new_refresh_token) = payload["refresh_token"].as_str() {
+        let entry = Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
         entry.set_password(new_refresh_token)
             .map_err(|e| format!("Microsoft-sessie veilig opslaan mislukt: {e}"))?;
     }
