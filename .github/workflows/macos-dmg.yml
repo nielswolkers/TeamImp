@@ -36,6 +36,8 @@ jobs:
 
       - name: Install frontend dependencies
         run: bun install
+        env:
+          VITE_MICROSOFT_CLIENT_ID: ${{ vars.MICROSOFT_CLIENT_ID }}
 
       - name: Generate TeamImp macOS icon
         run: bash scripts/generate-macos-icon.sh
