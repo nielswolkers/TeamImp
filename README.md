@@ -8,38 +8,33 @@ TeamImp is a macOS desktop companion for Microsoft Teams and Microsoft 365 schoo
 - Meldingen → Vermeldingen: find recent messages that @mention the signed-in user.
 - Taken → Openstaand / Verstreken / Voltooid: group assignments by due date and submission state.
 
-## Microsoft Entra setup
+## Microsoft sign-in (one-time app setup)
 
-Create an app registration in the Microsoft Entra admin center.
+TeamImp signs in through the normal Microsoft page in the system browser. The user selects their school account, signs in with Microsoft, and is returned automatically to TeamImp. The app uses OAuth 2.0 Authorization Code with PKCE and a temporary localhost callback. No password or client secret is stored by TeamImp.
 
-1. Choose accounts in this organizational directory only (single tenant) or accounts in any organizational directory (multi-tenant).
-2. Under Authentication, enable Allow public client flows.
-3. Add the delegated Microsoft Graph permissions below.
-4. Copy the Application (client) ID into TeamImp → Settings.
+A public Microsoft Entra app registration is required for any third-party app that requests Microsoft Graph access. This is a one-time developer configuration, not a key that users enter in the app:
 
-Core delegated permissions requested at sign-in:
+1. Create an app registration in Microsoft Entra.
+2. Set the supported account type to **Accounts in any organizational directory** (multitenant).
+3. Under **Authentication → Add a platform → Mobile and desktop applications**, add the system-browser redirect URI **http://localhost**.
+4. Add these delegated Microsoft Graph permissions: `User.Read`, `EduAssignments.ReadBasic`, `Chat.ReadBasic`, and `Chat.Read`.
+5. Set the repository Actions variable `MICROSOFT_CLIENT_ID` to the registration's **Application (client) ID**. It is a public identifier, not a secret. GitHub Actions injects it into the macOS build; it is never requested from the end user.
 
-- User.Read
-- EduAssignments.ReadBasic
-- Chat.ReadBasic
-- Chat.Read
-- offline_access, openid, profile
+For channel @mentions, TeamImp requests additional delegated permissions when the user selects **Toegang aanvragen**:
 
-For channel @mentions, TeamImp offers a separate optional consent flow for:
+- `Team.ReadBasic.All`
+- `Channel.ReadBasic.All`
+- `ChannelMessage.Read.All`
 
-- Team.ReadBasic.All
-- Channel.ReadBasic.All
-- ChannelMessage.Read.All
+`ChannelMessage.Read.All` is privileged and may require school administrator consent. Assignment and chat access can still work without it.
 
-ChannelMessage.Read.All is a privileged permission and commonly requires school administrator consent. If the school tenant does not allow it, chat reading and assignments can still work; channel mentions remain unavailable.
+## Token security
 
-## Authentication and privacy
-
-TeamImp uses the OAuth 2.0 device authorization grant for a public desktop client. No client secret is embedded in the app. Microsoft refresh tokens are stored in the macOS Keychain through the Rust/Tauri backend. Access tokens remain in memory. Sign out removes the stored refresh token.
+The authorization-code exchange and token refresh run in the native Rust backend. The refresh token is stored in the macOS Keychain; access tokens remain in memory. Sign out deletes the stored refresh token.
 
 ## Assignment status
 
-Assignments come from the education/me/assignments Graph endpoint. TeamImp checks the current student's submission records where available. An assignment is classified as completed when a submission is marked submitted/released/returned; otherwise it is overdue when its due date is in the past, and open when it is not overdue. If the school tenant limits submission reads, the due-date classification is used as a fallback.
+Assignments come from the Microsoft Graph `education/me/assignments` endpoint. TeamImp checks the current student's submission records where available. An assignment is classified as completed when a submission is marked submitted/released/returned; otherwise it is overdue when its due date is in the past, and open when it is not overdue. If the school tenant limits submission reads, the due-date classification is used as a fallback.
 
 ## Sync
 
@@ -49,9 +44,13 @@ The app refreshes data every five minutes while open, and the refresh button tri
 
 Requirements: macOS, Bun, Rust, and the Tauri v2 prerequisites.
 
-Run bun install, then bash scripts/generate-macos-icon.sh, then bunx tauri dev.
+Set `VITE_MICROSOFT_CLIENT_ID` to the app registration's public Application (client) ID, then run:
 
-Create the Apple Silicon DMG with:
+```bash
+bun install
+bash scripts/generate-macos-icon.sh
+bunx tauri dev
 bunx tauri build --target aarch64-apple-darwin --bundles dmg
+```
 
-GitHub Actions runs the same DMG build on every push to main and stores the installer as the TeamImp-macOS-Apple-Silicon workflow artifact.
+GitHub Actions builds the Apple Silicon DMG on every push to `main` and stores it as the `TeamImp-macOS-Apple-Silicon` workflow artifact.
