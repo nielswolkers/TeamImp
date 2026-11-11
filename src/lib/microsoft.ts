@@ -46,32 +46,21 @@ export function setChannelAccess(enabled: boolean) {
   localStorage.setItem(CHANNEL_ACCESS_KEY, enabled ? "true" : "false");
 }
 
-async function tokenRequest(body: URLSearchParams) {
-  const response = await fetch(AUTHORITY + "/token", {
-    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body
-  });
-  const payload = await response.json();
-  if (!response.ok) throw new Error(payload.error_description || payload.error || "Microsoft login failed.");
-  return payload as { access_token: string; refresh_token?: string; expires_in: number; scope?: string };
-}
-
 export function setAccessToken(token: string, expiresIn: number) {
   accessToken = token;
   tokenExpiresAt = Date.now() + Math.max(expiresIn, 60) * 1000;
 }
 
 async function refreshAccessToken() {
-  const refreshToken = await invoke<string | null>("get_microsoft_refresh_token");
-  if (!refreshToken) throw new Error("Niet aangemeld bij Microsoft.");
-  const scopes = [...BASE_SCOPES, ...(hasChannelAccess() ? CHANNEL_SCOPES : [])];
-  const result = await tokenRequest(new URLSearchParams({
-    client_id: getClientId(), grant_type: "refresh_token",
-    refresh_token: refreshToken, scope: scopes.join(" ")
-  }));
-  accessToken = result.access_token;
-  tokenExpiresAt = Date.now() + Number(result.expires_in || 3600) * 1000;
-  if (result.refresh_token) await invoke("set_microsoft_refresh_token", { token: result.refresh_token });
-  return accessToken;
+  const result = await invoke<{ access_token: string; expires_in: number }>(
+    "refresh_microsoft_access_token",
+    {
+      clientId: getClientId(),
+      extraScopes: hasChannelAccess() ? CHANNEL_SCOPES : []
+    }
+  );
+  setAccessToken(result.access_token, result.expires_in || 3600);
+  return result.access_token;
 }
 
 async function getAccessToken() {
