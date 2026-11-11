@@ -74,6 +74,11 @@ fn start_microsoft_login(
         query.finish()
     );
 
+    // Open the system browser before returning to the frontend so macOS launch
+    // errors are reported directly to the login button instead of being hidden
+    // inside the callback thread.
+    open_system_browser(&authorize_url)?;
+
     thread::spawn(move || {
         let result = complete_browser_login(
             listener,
@@ -82,7 +87,6 @@ fn start_microsoft_login(
             &verifier,
             &state,
             &scope_string,
-            &authorize_url,
         );
         match result {
             Ok((access_token, expires_in)) => {
@@ -110,10 +114,7 @@ fn complete_browser_login(
     verifier: &str,
     expected_state: &str,
     scope: &str,
-    authorize_url: &str,
 ) -> Result<(String, u64), String> {
-    open_system_browser(authorize_url)?;
-
     let deadline = Instant::now() + Duration::from_secs(300);
     let (mut stream, _) = loop {
         match listener.accept() {
@@ -195,15 +196,22 @@ fn complete_browser_login(
 
 fn open_system_browser(url: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
-    let result = Command::new("open").arg(url).spawn();
+    let result = Command::new("open").arg(url).status();
 
     #[cfg(target_os = "windows")]
-    let result = Command::new("cmd").args(["/C", "start", "", url]).spawn();
+    let result = Command::new("cmd").args(["/C", "start", "", url]).status();
 
     #[cfg(target_os = "linux")]
-    let result = Command::new("xdg-open").arg(url).spawn();
+    let result = Command::new("xdg-open").arg(url).status();
 
-    result.map(|_| ()).map_err(|e| format!("Microsoft-aanmeldpagina openen mislukt: {e}"))
+    match result {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => Err(format!(
+            "Microsoft-aanmeldpagina openen mislukt (browserproces stopte met code {:?}).",
+            status.code()
+        )),
+        Err(error) => Err(format!("Microsoft-aanmeldpagina openen mislukt: {error}")),
+    }
 }
 
 #[tauri::command]
