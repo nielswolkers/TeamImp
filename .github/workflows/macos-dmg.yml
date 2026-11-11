@@ -1,0 +1,52 @@
+name: Build TeamImp macOS DMG
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: teamimp-macos-dmg-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-apple-silicon:
+    name: Build Apple Silicon DMG
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install Rust for Apple Silicon
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: bun install
+
+      - name: Generate TeamImp macOS icon
+        run: bash scripts/generate-macos-icon.sh
+
+      - name: Build TeamImp DMG
+        run: bunx tauri build --target aarch64-apple-darwin --bundles dmg
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: TeamImp-macOS-Apple-Silicon
+          path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 30
