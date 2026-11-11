@@ -207,6 +207,55 @@ fn open_system_browser(url: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn refresh_microsoft_access_token(
+    client_id: String,
+    extra_scopes: Vec<String>,
+) -> Result<Value, String> {
+    let client_id = client_id.trim().to_string();
+    if client_id.is_empty() {
+        return Err("Microsoft Application ID ontbreekt in deze TeamImp-build.".into());
+    }
+    let entry = Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
+    let refresh_token = entry.get_password()
+        .map_err(|e| format!("Microsoft-sessie ophalen uit macOS Keychain mislukt: {e}"))?;
+    let mut scopes: Vec<String> = BASE_SCOPES.iter().map(|s| (*s).to_string()).collect();
+    for scope in extra_scopes {
+        if !scopes.contains(&scope) {
+            scopes.push(scope);
+        }
+    }
+    let scope = scopes.join(" ");
+    let response = reqwest::blocking::Client::new()
+        .post("https://login.microsoftonline.com/organizations/oauth2/v2.0/token")
+        .form(&[
+            ("client_id", client_id.as_str()),
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token.as_str()),
+            ("scope", scope.as_str()),
+        ])
+        .send()
+        .map_err(|e| format!("Microsoft-sessie vernieuwen mislukt: {e}"))?;
+    let status = response.status();
+    let payload: Value = response.json()
+        .map_err(|e| format!("Microsoft-tokenantwoord kon niet worden gelezen: {e}"))?;
+    if !status.is_success() {
+        let description = payload["error_description"].as_str()
+            .or_else(|| payload["error"].as_str())
+            .unwrap_or("Onbekende Microsoft OAuth-fout");
+        return Err(format!("Microsoft-token vernieuwen ({status}): {description}"));
+    }
+    if let Some(new_refresh_token) = payload["refresh_token"].as_str() {
+        entry.set_password(new_refresh_token)
+            .map_err(|e| format!("Microsoft-sessie veilig opslaan mislukt: {e}"))?;
+    }
+    Ok(serde_json::json!({
+        "access_token": payload["access_token"].as_str()
+            .ok_or_else(|| "Microsoft heeft geen access token teruggestuurd.".to_string())?,
+        "expires_in": payload["expires_in"].as_u64().unwrap_or(3600)
+    }))
+}
+
+#[tauri::command]
 fn get_microsoft_refresh_token() -> Result<Option<String>, String> {
     let entry = Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
     match entry.get_password() {
@@ -235,6 +284,7 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             start_microsoft_login,
+            refresh_microsoft_access_token,
             get_microsoft_refresh_token,
             set_microsoft_refresh_token,
             delete_microsoft_refresh_token
