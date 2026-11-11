@@ -45,14 +45,21 @@ function App() {
     setBusy(true);
     setError("");
     try {
-      const [me, assignmentData, chatData] = await Promise.all([getMe(), getAssignments(), getChats()]);
+      const me = await getMe();
       setProfileName(me.displayName || me.userPrincipalName || "Microsoft-account");
       setProfileId(me.id);
+      const [assignmentResult, chatResult] = await Promise.allSettled([getAssignments(), getChats()]);
+      const assignmentData = assignmentResult.status === "fulfilled" ? assignmentResult.value : [];
+      const chatData = chatResult.status === "fulfilled" ? chatResult.value : [];
       setAssignments(assignmentData);
       setChats(chatData);
       setConnected(true);
       setLastSynced(new Date());
-      if (!selectedChat && chatData.length) setSelectedChat(chatData[0].id);
+      setSelectedChat((current) => current || chatData[0]?.id || "");
+      const warnings: string[] = [];
+      if (assignmentResult.status === "rejected") warnings.push("Taken niet beschikbaar: " + String(assignmentResult.reason));
+      if (chatResult.status === "rejected") warnings.push("Chats niet beschikbaar: " + String(chatResult.reason));
+      setError(warnings.join(" · "));
       const mentionData = await getMentions(chatData, me.id);
       setMentions(mentionData);
     } catch (err) {
