@@ -70,7 +70,7 @@ fn start_microsoft_login(
         .append_pair("code_challenge_method", "S256")
         .append_pair("prompt", "select_account");
     let authorize_url = format!(
-        "https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize?{}",
+        "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?{}",
         query.finish()
     );
 
@@ -161,7 +161,7 @@ fn complete_browser_login(
     let code = parameters.get("code").ok_or_else(|| "Microsoft heeft geen autorisatiecode teruggestuurd.".to_string())?;
 
     let response = reqwest::blocking::Client::new()
-        .post("https://login.microsoftonline.com/organizations/oauth2/v2.0/token")
+        .post("https://login.microsoftonline.com/common/oauth2/v2.0/token")
         .form(&[
             ("client_id", client_id),
             ("grant_type", "authorization_code"),
@@ -228,7 +228,7 @@ async fn refresh_microsoft_access_token(
     }
     let scope = scopes.join(" ");
     let response = reqwest::Client::new()
-        .post("https://login.microsoftonline.com/organizations/oauth2/v2.0/token")
+        .post("https://login.microsoftonline.com/common/oauth2/v2.0/token")
         .form(&[
             ("client_id", client_id.as_str()),
             ("grant_type", "refresh_token"),
