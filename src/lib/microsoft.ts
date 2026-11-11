@@ -66,7 +66,7 @@ async function getAccessToken() {
   if (accessToken && Date.now() < tokenExpiresAt - 60_000) return accessToken;
   try {
     return await refreshAccessToken();
-  } catch {
+  } catch (error) {
     if (hasChannelAccess()) {
       setChannelAccess(false);
       return refreshAccessToken();
