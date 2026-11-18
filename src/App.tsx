@@ -127,7 +127,14 @@ function App() {
       removeSuccess?.();
       removeError?.();
       setLoginStatus("");
-      setError(err instanceof Error ? err.message : "Aanmelden mislukt.");
+      // Tauri commands can reject with a plain string (Rust Result<(), String>),
+      // not necessarily a JavaScript Error. Preserve that native error message.
+      const message =
+        typeof err === "string" ? err :
+        err instanceof Error ? err.message :
+        err && typeof err === "object" && "message" in err && typeof err.message === "string" ? err.message :
+        String(err);
+      setError(message && message !== "[object Object]" ? message : "Aanmelden mislukt (onbekende fout vanuit TeamImp).");
     }
   }
 
