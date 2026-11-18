@@ -196,21 +196,32 @@ fn complete_browser_login(
 
 fn open_system_browser(url: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
-    let result = Command::new("open").arg(url).status();
+    let result = Command::new("/usr/bin/open").arg(url).output();
 
     #[cfg(target_os = "windows")]
-    let result = Command::new("cmd").args(["/C", "start", "", url]).status();
+    let result = Command::new("cmd").args(["/C", "start", "", url]).output();
 
     #[cfg(target_os = "linux")]
-    let result = Command::new("xdg-open").arg(url).status();
+    let result = Command::new("xdg-open").arg(url).output();
 
     match result {
-        Ok(status) if status.success() => Ok(()),
-        Ok(status) => Err(format!(
-            "Microsoft-aanmeldpagina openen mislukt (browserproces stopte met code {:?}).",
-            status.code()
+        Ok(output) if output.status.success() => Ok(()),
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let detail = if stderr.is_empty() {
+                "geen aanvullende systeemmelding".to_string()
+            } else {
+                stderr
+            };
+            Err(format!(
+                "Microsoft-aanmeldpagina openen mislukt (exitcode {:?}): {}",
+                output.status.code(),
+                detail
+            ))
+        }
+        Err(error) => Err(format!(
+            "TeamImp kon de browser niet starten via het besturingssysteem: {error}"
         )),
-        Err(error) => Err(format!("Microsoft-aanmeldpagina openen mislukt: {error}")),
     }
 }
 
